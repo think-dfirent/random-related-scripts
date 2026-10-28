@@ -1,0 +1,23 @@
+[
+    {
+        "date.time": "2025-03-07T15:36:18.567155+00:00",
+        "host.name": "example-server",
+        "service.name": "sshd",
+        "process.id": "2491798",
+        "message": "Accepted publickey for root from 203.0.113.0 port 65350 ssh2: RSA SHA256:XaeoOmXzt2fEF67opjDlcTRDUiFksXVXKxCAJSSwzch"
+    },
+    {
+        "date.time": "2025-03-07T15:36:18.577133+00:00",
+        "host.name": "example-server",
+        "service.name": "sshd",
+        "process.id": "2491798",
+        "message": "pam_unix(sshd:session): session opened for user root(uid=0) by root(uid=0)"
+    },
+    {
+        "date.time": "2025-03-07T15:36:18.630644+00:00",
+        "host.name": "example-server",
+        "service.name": "systemd-logind",
+        "process.id": "808",
+        "message": "New session 36872 of user root."
+    }
+]
