@@ -1,3 +1,0 @@
-2025-03-07T15:36:18.567155+00:00 example-server sshd[2491798]: Accepted publickey for root from 203.0.113.0 port 65350 ssh2: RSA SHA256:XaeoOmXzt2fEF67opjDlcTRDUiFksXVXKxCAJSSwzch
-2025-03-07T15:36:18.577133+00:00 example-server sshd[2491798]: pam_unix(sshd:session): session opened for user root(uid=0) by root(uid=0)
-2025-03-07T15:36:18.630644+00:00 example-server systemd-logind[808]: New session 36872 of user root.

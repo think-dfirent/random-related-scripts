@@ -17,7 +17,10 @@ with open (sample, "r", encoding="utf-8") as file:
         if not line:
             continue
         match = pattern.search(line)
-        if match: 
+        if not match: 
+            print(f"Skipped unmatched line: {line}")
+            continue
+        else:
             parsed_dict = {
                 "date.time": match.group("date_time"),
                 "host.name": match.group("host_name"),
@@ -25,9 +28,7 @@ with open (sample, "r", encoding="utf-8") as file:
                 "process.id": match.group("process_id"),
                 "message": match.group("message"),
             }
-        else: 
-            print(f"Skipped unmatched line: {line}")
-        parsed_logs.append(parsed_dict)
+            parsed_logs.append(parsed_dict)
 with open(output_path, "w", encoding="utf-8") as parsed_file:
     json.dump(parsed_logs, parsed_file, indent=4)
 
