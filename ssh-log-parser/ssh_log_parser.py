@@ -23,19 +23,18 @@ class SshEvent:
     pid: int
     result: str
     user: str
-    src_ip: int
+    src_ip: str
     src_port: int
     #there can be a lot more
     
 
-def parse_envelop(line: str) -> dict[str, Any] | None:
+def parse_envelope(line: str) -> dict[str, Any] | None:
     """Split syslog line into timestamp/host/service/pid/message."""
     line = line.strip()
     if not line:
         return None
     match = ENVELOPE.search(line)
     if not match: 
-        print(f"Skipped unmatched line: {line}")
         return None
     else:
         parsed_dict = {
@@ -53,8 +52,9 @@ def main():
     parsed_logs = []   
     with open (sample, "r", encoding="utf-8") as file:
         for line in file:
-            parsed_dict = parse_envelop(line)
+            parsed_dict = parse_envelope(line)
             if not parsed_dict:
+                print(f"Skipped unmatched line: {line}")
                 continue
             else:
                 parsed_logs.append(parsed_dict)
