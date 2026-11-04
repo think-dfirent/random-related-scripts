@@ -127,21 +127,28 @@ def parse_line(line: str) -> SshEvent | None:
 def main():
     sample = Path(__file__).with_name("ssh_log_sample.txt").resolve()
     output_path = Path(__file__).with_name("parsed_ssh_log.json").resolve()
-    parsed_logs = []
+    parsed_logs: list[dict[str, Any]] = []
+    skipped_lines: dict[int, str] = {}
+    line_num = 0
     with open(sample, "r", encoding="utf-8") as file:
         for line in file:
+            line_num += 1
             line = line.strip()
             if not line:
+                skipped_lines[line_num] = "<empty line>"
                 continue
             ssh_event = parse_line(line)
             if not ssh_event:
-                print(f"Skipped unmatched line: {line}")
+                skipped_lines[line_num] = line
                 continue
             else:
                 parsed_logs.append(ssh_event.to_dict())
 
     with open(output_path, "w", encoding="utf-8") as parsed_file:
         json.dump(parsed_logs, parsed_file, indent=4)
+    print(f"Parsed {len(parsed_logs)} events, skipped {len(skipped_lines)} lines.")
+    for line_num, content in skipped_lines.items():
+        print(f"  Line {line_num}: {content}")
 
 
 if __name__ == "__main__":
