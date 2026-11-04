@@ -1,13 +1,12 @@
 import json
 import re
-import sys
-from typing import Any, Literal, get_args, cast
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import Any, Literal, cast, get_args
 
 DATE_TIME = (
-    r"(?P<date_time>\d{4}-\d{2}-\d{2}T(?:\d{2}:){2}\d{2}\.\d{6}[\+|\-]\d{2}:\d{2})"
+    r"(?P<date_time>\d{4}-\d{2}-\d{2}T(?:\d{2}:){2}\d{2}\.\d{6}[\+\-]\d{2}:\d{2})"
 )
 HOST_NAME = r"(?P<host_name>[a-zA-Z0-9-]+)"
 SERVICE = r"(?P<service_name>[a-z-]+)\[(?P<process_id>\d+)\]"
@@ -29,7 +28,7 @@ AuthMethod = Literal[
 
 @dataclass(frozen=True, slots=True)
 class SshEvent:
-    """Known limitation: on only-key servers, username probes product only
+    """Known limitation: on only-key servers, username probes produce only
     "Invalid user" + Connection closed ....[preauth] with no Failed line,
     so they generate no SshEvent."""
 
