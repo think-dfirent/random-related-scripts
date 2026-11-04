@@ -43,6 +43,19 @@ class SshEvent:
     src_ip: str
     src_port: int
 
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "timestamp": self.timestamp.isoformat(),
+            "host.name": self.hostname,
+            "pid": self.pid,
+            "result": self.result,
+            "method": self.method,
+            "user": self.user,
+            "invalid.user": self.invalid_user,
+            "src.ip": self.src_ip,
+            "src.port": self.src_port,
+        }
+
 
 def parse_envelope(line: str) -> dict[str, Any] | None:
     """Split syslog line into timestamp/host/service/pid/message."""
@@ -64,7 +77,7 @@ AUTH_MESSAGE = re.compile(
 )
 
 
-def parse_ssh_message(message: str) -> dict[str, str | None] | None:
+def parse_message(message: str) -> dict[str, str | None] | None:
     match = AUTH_MESSAGE.search(message)
     if not match:
         return None
@@ -79,19 +92,14 @@ VALID_AUTH_METHODS: tuple[str, ...] = get_args(AuthMethod)
 
 
 def parse_auth_method(raw_method: str | None) -> AuthMethod:
-    """Normalize and validate the extracted sshd auth method."""
+    """Normalize and validate the sshd method"""
     if not raw_method:
         return "other"
-
-    cleaned = raw_method.strip().lower()
-
-    # sshd frequently logs 'keyboard-interactive/pam'
-    if cleaned.startswith("keyboard-interactive"):
+    method = raw_method.strip().lower()
+    if method.startswith("keyboard-interactive"):
         return "keyboard-interactive"
-
-    if cleaned in VALID_AUTH_METHODS:
-        return cast(AuthMethod, cleaned)
-
+    if method in VALID_AUTH_METHODS:
+        return cast(AuthMethod, method)
     return "other"
 
 
@@ -99,7 +107,7 @@ def parse_line(line: str) -> SshEvent | None:
     envelope = parse_envelope(line)
     if envelope is None or envelope["service_name"] != "sshd":
         return None
-    parsed_message = parse_ssh_message(envelope["message"])
+    parsed_message = parse_message(envelope["message"])
     if not parsed_message:
         return None
     event_result = _RESULT_MAP[parsed_message["result"]]
@@ -123,12 +131,16 @@ def main():
     parsed_logs = []
     with open(sample, "r", encoding="utf-8") as file:
         for line in file:
-            parsed_dict = parse_envelope(line)
-            if not parsed_dict:
+            line = line.strip()
+            if not line:
+                continue
+            ssh_event = parse_line(line)
+            if not ssh_event:
                 print(f"Skipped unmatched line: {line}")
                 continue
             else:
-                parsed_logs.append(parsed_dict)
+                parsed_logs.append(ssh_event.to_dict())
+
     with open(output_path, "w", encoding="utf-8") as parsed_file:
         json.dump(parsed_logs, parsed_file, indent=4)
 
