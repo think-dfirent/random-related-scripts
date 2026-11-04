@@ -111,8 +111,12 @@ def parse_line(line: str) -> SshEvent | None:
         return None
     event_result = _RESULT_MAP[parsed_message["result"]]
     event_method = parse_auth_method(parsed_message["method"])
+    try:
+        timestamp = datetime.fromisoformat(envelope["date_time"])
+    except ValueError:
+        return None
     return SshEvent(
-        timestamp=datetime.fromisoformat(envelope["date_time"]),
+        timestamp=timestamp,
         hostname=envelope["host_name"],
         pid=int(envelope["process_id"]),
         result=event_result,
