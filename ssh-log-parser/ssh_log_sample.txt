@@ -8,7 +8,7 @@
 2025-03-07T15:38:21.004120+00:00 example-server sshd[2491901]: Disconnected from invalid user admin 198.51.100.42 port 54321 [preauth]
 2025-03-07T10:40:05.819204-05:00 prod-bastion-01 sshd[30492]: Failed password for deploy from 192.0.2.88 port 49152 ssh2
 2025-03-07T10:40:09.128401-05:00 prod-bastion-01 sshd[30492]: Accepted password for deploy from 192.0.2.88 port 49152 ssh2
-2025-03-07T15:42:55.331900+07:00 vn-edge-node sshd[11044]: Accepted keyboard-interactive/pam for sysadmin from 10.20.30.40 port 51234 ssh2
+2025-03-07T15:42:55.331900+07:00 web1.example.com sshd[11044]: Accepted keyboard-interactive/pam for sysadmin from 10.20.30.40 port 51234 ssh2
 2025-03-07T15:45:10.002918+00:00 ipv6-gateway sshd[88210]: Failed publickey for ubuntu from 2001:db8:85a3::8a2e:370:7334 port 41992 ssh2: ED25519 SHA256:k9LmN2pQ4rS6tU8vW0xY2zA4bC6dE8fG0hI2jK4lM6n
 2025-03-07T15:46:01.774129+00:00 example-server sshd[2492110]: Failed none for invalid user guest from 198.51.100.99 port 39104 ssh2
 2025-03-07T15:47:19.552010+00:00 example-server sshd[2492205]: Invalid user oracle from 203.0.113.195 port 60112
