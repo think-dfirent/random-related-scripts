@@ -13,7 +13,9 @@ SERVICE = r"(?P<service_name>[a-z-]+)\[(?P<process_id>\d+)\]"
 MESSAGE = r"(?P<message>.*)"
 
 ENVELOPE = re.compile(rf"^{DATE_TIME}\s{HOST_NAME}\s{SERVICE}:\s{MESSAGE}$")
-
+REPEATED_MESSAGE = re.compile(
+    r"message repeated (?P<repeated_count>\d+) times: \[\s*(?P<inner_msg>.*?)\]"
+)
 AuthResult = Literal["success", "failure"]
 AuthMethod = Literal[
     "password",
@@ -76,11 +78,17 @@ AUTH_MESSAGE = re.compile(
 )
 
 
-def parse_message(message: str) -> dict[str, str | None] | None:
+def parse_message(message: str) -> tuple[dict[str, str | None], int] | None:
+    repeated_message = REPEATED_MESSAGE.search(message)
+    repeated_count = 1
+    if repeated_message:
+        message = repeated_message.group("inner_msg")
+        repeated_count = int(repeated_message.group("repeated_count"))
+
     match = AUTH_MESSAGE.search(message)
     if not match:
         return None
-    return match.groupdict()
+    return match.groupdict(), repeated_count
 
 
 _RESULT_MAP: dict[str, AuthResult] = {
@@ -102,20 +110,22 @@ def parse_auth_method(raw_method: str | None) -> AuthMethod:
     return "other"
 
 
-def parse_line(line: str) -> SshEvent | None:
+def parse_line(line: str) -> list[SshEvent]:
+    event_list = []
     envelope = parse_envelope(line)
     if envelope is None or envelope["service_name"] != "sshd":
-        return None
-    parsed_message = parse_message(envelope["message"])
-    if not parsed_message:
-        return None
-    event_result = _RESULT_MAP[parsed_message["result"]]
-    event_method = parse_auth_method(parsed_message["method"])
+        return []
+    parsed = parse_message(envelope["message"])
+    if not parsed:
+        return []
+    parsed_message, repeat_count = parsed
     try:
         timestamp = datetime.fromisoformat(envelope["date_time"])
     except ValueError:
-        return None
-    return SshEvent(
+        return []
+    event_result = _RESULT_MAP[parsed_message["result"]]
+    event_method = parse_auth_method(parsed_message["method"])
+    event = SshEvent(
         timestamp=timestamp,
         hostname=envelope["host_name"],
         pid=int(envelope["process_id"]),
@@ -126,6 +136,7 @@ def parse_line(line: str) -> SshEvent | None:
         src_ip=parsed_message["src_ip"],
         src_port=int(parsed_message["src_port"]),
     )
+    return [event] * repeat_count
 
 
 def main():
@@ -141,12 +152,11 @@ def main():
             if not line:
                 skipped_lines[line_num] = "<empty line>"
                 continue
-            ssh_event = parse_line(line)
-            if not ssh_event:
+            ssh_events = parse_line(line)
+            if not ssh_events:
                 skipped_lines[line_num] = line
                 continue
-            else:
-                parsed_logs.append(ssh_event.to_dict())
+            parsed_logs.extend(ssh_event.to_dict() for ssh_event in ssh_events)
 
     with open(output_path, "w", encoding="utf-8") as parsed_file:
         json.dump(parsed_logs, parsed_file, indent=4)
