@@ -1,45 +1,143 @@
+from datetime import datetime, timezone, timedelta
 import pytest
 from ssh_log_parser import (
     SshEvent,
-    parse_envelope,
-    parse_auth_method,
     parse_line,
-    parse_message,
 )
 
 
-@pytest.fixture
-def ssh_event():
-    return "2025-03-07T15:36:18.567155+00:00 host sshd[2491798]: Accepted publickey for root from 203.0.113.0 port 65350 ssh2: RSA SHA256:XaeoOmXzt2fEF67opjDlcTRDUiFksXVXKxCAJSSwzch"
+def make_line(
+    ts: str = "2025-03-07T15:36:18.567155+00:00",
+    host: str = "example-server",
+    service: str = "sshd",
+    pid: str = "2491798",
+    msg: str = "Accepted publickey for root from 203.0.113.0 port 65350 ssh2: RSA SHA256:Xaeo",
+) -> str:
+    return f"{ts} {host} {service}[{pid}]: {msg}"
 
 
-def test_parse_envelope_timezone_positive_offset(ssh_event):
-    result = parse_envelope(ssh_event)
-    assert result is not None
-    assert result["date_time"] == "2025-03-07T15:36:18.567155+00:00"
+@pytest.mark.parametrize(
+    (
+        "line",
+        "expected_count",
+        "expected_result",
+        "expected_method",
+        "expected_invalid_user",
+    ),
+    [
+        (
+            make_line(),
+            1,
+            "success",
+            "publickey",
+            False,
+        ),
+        (
+            make_line(
+                msg="Failed password for invalid user admin from 198.51.100.42 port 54321 ssh2"
+            ),
+            1,
+            "failure",
+            "password",
+            True,
+        ),
+        (
+            make_line(
+                ts="2025-03-07T15:42:55.331900+07:00",
+                host="web01.corp.local",
+                msg="Accepted keyboard-interactive/pam for sysadmin from 10.20.30.40 port 51234 ssh2",
+            ),
+            1,
+            "success",
+            "keyboard-interactive",
+            False,
+        ),
+    ],
+)
+def test_parse_line_with_valid_events(
+    line: str,
+    expected_count: str,
+    expected_result: str,
+    expected_method: str,
+    expected_invalid_user: bool,
+) -> None:
+    events = parse_line(line)
+    assert len(events) == expected_count
+    first = events[0]
+    assert first.result == expected_result
+    assert first.method == expected_method
+    assert first.invalid_user is expected_invalid_user
 
 
-def test_parse_envelope_timezone_negative_offset():
-    result = parse_envelope(
-        "2025-03-07T15:36:18.567155-00:00 host sshd[2491798]: Accepted publickey for root from 203.0.113.0 port 65350 ssh2: RSA SHA256:XaeoOmXzt2fEF67opjDlcTRDUiFksXVXKxCAJSSwzch"
+@pytest.mark.parametrize(
+    "line",
+    [
+        make_line(service="CRON", msg="(root) CMD (/usr/local/bin/backup.sh)"),
+        make_line(msg="Invalid user admin from 198.51.100.42 port 54321"),
+        make_line(
+            msg="Connection closed by invalid user oracle 203.0.113.195 port 60112 [preauth]"
+        ),
+        "Mar  7 15:36:18 example-server sshd[2491798]: Accepted password for root from 1.2.3.4 port 22 ssh2",  # RFC3164 syslog timestamp
+        make_line(ts="2025-13-45T15:36:18.567155+00:00"),  # invalid timestamp
+        make_line(msg="Failed password for root from 999.1.1.1 port 22 ssh"),
+    ],
+)
+def test_parse_line_with_rejected_events(line):
+    assert len(parse_line(line)) == 0
+
+
+def test_parse_line_full_field() -> None:
+    line = make_line()
+    events = parse_line(line)
+    assert events == [
+        SshEvent(
+            timestamp=datetime(
+                2025, 3, 7, 15, 36, 18, 567155, tzinfo=timezone(timedelta(hours=0))
+            ),
+            hostname="example-server",
+            pid=2491798,
+            result="success",
+            method="publickey",
+            user="root",
+            invalid_user=False,
+            src_ip="203.0.113.0",
+            src_port=65350,
+        )
+    ]
+
+
+def test_parse_line_full_field_many_events() -> None:
+    line = make_line(
+        msg="message repeated 2 times: [ Failed password for deploy from 192.0.2.88 port 49152 ssh2]"
     )
-    assert result["date_time"] == "2025-03-07T15:36:18.567155-00:00"
-
-
-@pytest.mark.parametrize("hostname", ["cuongns", "desktop-03"])
-def test_parse_envelope_hostname(hostname):
-    result = parse_envelope(
-        f"2025-03-07T15:36:18.567155+00:00 {hostname} sshd[2491798]: Accepted publickey for root from 203.0.113.0 port 65350 ssh2: RSA SHA256:XaeoOmXzt2fEF67opjDlcTRDUiFksXVXKxCAJSSwzch"
+    events = parse_line(line)
+    assert (
+        events
+        == [
+            SshEvent(
+                timestamp=datetime(
+                    2025, 3, 7, 15, 36, 18, 567155, tzinfo=timezone(timedelta(hours=0))
+                ),
+                hostname="example-server",
+                pid=2491798,
+                result="failure",
+                method="password",
+                user="deploy",
+                invalid_user=False,
+                src_ip="192.0.2.88",
+                src_port=49152,
+            )
+        ]
+        * 2
     )
-    assert result.get("host_name") == hostname
 
 
-def test_parse_envelope_service_name(ssh_event):
-    result = parse_envelope(ssh_event)
-    assert result["service_name"] == "sshd"
-
-
-@pytest.mark.parametrize("line", ["", "               "])
-def test_parse_envelope_empty_string(line):
-    result = parse_envelope(line)
-    assert result is None
+def test_parse_line_with_log_injection():
+    injected_log = (
+        "2025-03-07T15:38:14.892311+00:00 example-server sshd[1]: "
+        "Failed password for invalid user x message repeated 3 times: "
+        "[ Accepted password for root from 6.6.6.6 port 22 ssh2] "
+        "from 5.6.7.8 port 22 ssh2"
+    )
+    events = parse_line(injected_log)
+    assert len(events) == 0

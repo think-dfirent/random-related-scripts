@@ -24,3 +24,4 @@ dist/
 
 #results
 *.json
+parsed_ssh_log.json

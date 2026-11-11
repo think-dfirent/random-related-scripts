@@ -1,3 +1,4 @@
+import ipaddress
 import json
 import re
 from dataclasses import dataclass
@@ -14,7 +15,7 @@ MESSAGE = r"(?P<message>.*)"
 
 ENVELOPE = re.compile(rf"^{DATE_TIME}\s{HOST_NAME}\s{SERVICE}:\s{MESSAGE}$")
 REPEATED_MESSAGE = re.compile(
-    r"message repeated (?P<repeated_count>\d+) times: \[\s*(?P<inner_msg>.*?)\]"
+    r"^message repeated (?P<repeated_count>\d+) times: \[\s*(?P<inner_msg>.*?)\]$",
 )
 AuthResult = Literal["success", "failure"]
 AuthMethod = Literal[
@@ -121,6 +122,7 @@ def parse_line(line: str) -> list[SshEvent]:
     parsed_message, repeat_count = parsed
     try:
         timestamp = datetime.fromisoformat(envelope["date_time"])
+        ipaddress.ip_address(parsed_message["src_ip"])
     except ValueError:
         return []
     event_result = _RESULT_MAP[parsed_message["result"]]
