@@ -1,6 +1,7 @@
 import ipaddress
 import json
 import re
+from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -10,7 +11,7 @@ DATE_TIME = (
     r"(?P<date_time>\d{4}-\d{2}-\d{2}T(?:\d{2}:){2}\d{2}\.\d{6}[\+\-]\d{2}:\d{2})"
 )
 HOST_NAME = r"(?P<host_name>\S+)"
-SERVICE = r"(?P<service_name>[a-z-]+)\[(?P<process_id>\d+)\]"
+SERVICE = r"(?P<service_name>[A-Za-z0-9_.-]+)\[(?P<process_id>\d+)\]"
 MESSAGE = r"(?P<message>.*)"
 
 ENVELOPE = re.compile(rf"^{DATE_TIME}\s{HOST_NAME}\s{SERVICE}:\s{MESSAGE}$")
@@ -27,6 +28,13 @@ AuthMethod = Literal[
     "none",
     "other",
 ]
+
+_RESULT_MAP: dict[str, AuthResult] = {
+    "Accepted": "success",
+    "Failed": "failure",
+}
+VALID_AUTH_METHODS: tuple[str, ...] = get_args(AuthMethod)
+SkipReason = Literal["malformed", "non-sshd", "unmatched_message"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,6 +65,12 @@ class SshEvent:
             "src.ip": self.src_ip,
             "src.port": self.src_port,
         }
+
+
+@dataclass(frozen=True, slots=True)
+class ParseResult:
+    events: list[SshEvent]
+    skip_reason: SkipReason | None = None
 
 
 def parse_envelope(line: str) -> dict[str, Any] | None:
@@ -92,13 +106,6 @@ def parse_message(message: str) -> tuple[dict[str, str | None], int] | None:
     return match.groupdict(), repeated_count
 
 
-_RESULT_MAP: dict[str, AuthResult] = {
-    "Accepted": "success",
-    "Failed": "failure",
-}
-VALID_AUTH_METHODS: tuple[str, ...] = get_args(AuthMethod)
-
-
 def parse_auth_method(raw_method: str | None) -> AuthMethod:
     """Normalize and validate the sshd method"""
     if not raw_method:
@@ -111,20 +118,22 @@ def parse_auth_method(raw_method: str | None) -> AuthMethod:
     return "other"
 
 
-def parse_line(line: str) -> list[SshEvent]:
+def parse_line(line: str) -> ParseResult:
     event_list = []
     envelope = parse_envelope(line)
-    if envelope is None or envelope["service_name"] != "sshd":
-        return []
+    if envelope is None:
+        return ParseResult(events=[], skip_reason="malformed")
+    if envelope["service_name"] != "sshd":
+        return ParseResult(events=[], skip_reason="non-sshd")
     parsed = parse_message(envelope["message"])
     if not parsed:
-        return []
+        return ParseResult(events=[], skip_reason="unmatched_message")
     parsed_message, repeat_count = parsed
     try:
         timestamp = datetime.fromisoformat(envelope["date_time"])
         ipaddress.ip_address(parsed_message["src_ip"])
     except ValueError:
-        return []
+        return ParseResult(events=[], skip_reason="malformed")
     event_result = _RESULT_MAP[parsed_message["result"]]
     event_method = parse_auth_method(parsed_message["method"])
     event = SshEvent(
@@ -138,33 +147,49 @@ def parse_line(line: str) -> list[SshEvent]:
         src_ip=parsed_message["src_ip"],
         src_port=int(parsed_message["src_port"]),
     )
-    return [event] * repeat_count
+    return ParseResult(events=[event] * repeat_count, skip_reason=None)
 
 
 def main():
     sample = Path(__file__).with_name("ssh_log_sample.txt").resolve()
     output_path = Path(__file__).with_name("parsed_ssh_log.json").resolve()
     parsed_logs: list[dict[str, Any]] = []
-    skipped_lines: dict[int, str] = {}
-    line_num = 0
+    ignored_lines: dict[int, tuple[SkipReason, str]] = {}
+    malformed_lines: dict[int, str] = {}
     with open(sample, "r", encoding="utf-8") as file:
-        for line in file:
-            line_num += 1
-            line = line.strip()
+        for line_num, raw_line in enumerate(file, start=1):
+            line = raw_line.strip()
             if not line:
-                skipped_lines[line_num] = "<empty line>"
+                malformed_lines[line_num] = "<empty line>"
                 continue
-            ssh_events = parse_line(line)
-            if not ssh_events:
-                skipped_lines[line_num] = line
-                continue
-            parsed_logs.extend(ssh_event.to_dict() for ssh_event in ssh_events)
+            outcome = parse_line(line)
+            if outcome.events:
+                parsed_logs.extend(ev.to_dict() for ev in outcome.events)
+            elif outcome.skip_reason == "malformed":
+                malformed_lines[line_num] = line
+            elif outcome.skip_reason is not None:
+                ignored_lines[line_num] = (outcome.skip_reason, line)
 
     with open(output_path, "w", encoding="utf-8") as parsed_file:
         json.dump(parsed_logs, parsed_file, indent=4)
-    print(f"Parsed {len(parsed_logs)} events, skipped {len(skipped_lines)} lines.")
-    for line_num, content in skipped_lines.items():
-        print(f"  Line {line_num}: {content}")
+    skipped_lines = len(ignored_lines) + len(malformed_lines)
+    total = len(parsed_logs) + skipped_lines
+    counts = Counter(log["result"] for log in parsed_logs)
+    success_count = counts["success"]
+    failure_count = counts["failure"]
+    print(f"Total: {total}")
+    print(
+        f"Auth events: {len(parsed_logs)} (success {success_count}, failure {failure_count})"
+    )
+    print(f"Skipped lines: {skipped_lines}")
+    print(f"    Ignored lines: {len(ignored_lines)}")
+    print(f"    Malformed lines: {len(malformed_lines)}")
+    print("Ingored: ")
+    for line_num, (reason, content) in ignored_lines.items():
+        print(f"    [Ignored - {reason}] Line {line_num}: {content}")
+    print("Malformed: ")
+    for line_num, content in malformed_lines.items():
+        print(f"    [Malformed] Line {line_num}: {content}")
 
 
 if __name__ == "__main__":

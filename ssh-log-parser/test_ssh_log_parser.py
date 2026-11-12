@@ -61,35 +61,54 @@ def test_parse_line_with_valid_events(
     expected_method: str,
     expected_invalid_user: bool,
 ) -> None:
-    events = parse_line(line)
-    assert len(events) == expected_count
-    first = events[0]
+    outcome = parse_line(line)
+    assert len(outcome.events) == expected_count
+    first = outcome.events[0]
     assert first.result == expected_result
     assert first.method == expected_method
     assert first.invalid_user is expected_invalid_user
 
 
 @pytest.mark.parametrize(
-    "line",
+    ("line", "skip_reason"),
     [
-        make_line(service="CRON", msg="(root) CMD (/usr/local/bin/backup.sh)"),
-        make_line(msg="Invalid user admin from 198.51.100.42 port 54321"),
-        make_line(
-            msg="Connection closed by invalid user oracle 203.0.113.195 port 60112 [preauth]"
+        (
+            make_line(service="CRON", msg="(root) CMD (/usr/local/bin/backup.sh)"),
+            "non-sshd",
         ),
-        "Mar  7 15:36:18 example-server sshd[2491798]: Accepted password for root from 1.2.3.4 port 22 ssh2",  # RFC3164 syslog timestamp
-        make_line(ts="2025-13-45T15:36:18.567155+00:00"),  # invalid timestamp
-        make_line(msg="Failed password for root from 999.1.1.1 port 22 ssh"),
+        (
+            make_line(msg="Invalid user admin from 198.51.100.42 port 54321"),
+            "unmatched_message",
+        ),
+        (
+            make_line(
+                msg="Connection closed by invalid user oracle 203.0.113.195 port 60112 [preauth]"
+            ),
+            "unmatched_message",
+        ),
+        (
+            "Mar  7 15:36:18 example-server sshd[2491798]: Accepted password for root from 1.2.3.4 port 22 ssh2",
+            "malformed",
+        ),  # RFC3164 syslog timestamp
+        (
+            make_line(ts="2025-13-45T15:36:18.567155+00:00"),
+            "malformed",
+        ),  # invalid timestamp
+        (
+            make_line(msg="Failed password for root from 999.1.1.1 port 22 ssh"),
+            "malformed",
+        ),
     ],
 )
-def test_parse_line_with_rejected_events(line):
-    assert len(parse_line(line)) == 0
+def test_parse_line_with_rejected_events(line, skip_reason):
+    assert len(parse_line(line).events) == 0
+    assert parse_line(line).skip_reason == skip_reason
 
 
 def test_parse_line_full_field() -> None:
     line = make_line()
-    events = parse_line(line)
-    assert events == [
+    outcome = parse_line(line)
+    assert outcome.events == [
         SshEvent(
             timestamp=datetime(
                 2025, 3, 7, 15, 36, 18, 567155, tzinfo=timezone(timedelta(hours=0))
@@ -110,9 +129,9 @@ def test_parse_line_full_field_many_events() -> None:
     line = make_line(
         msg="message repeated 2 times: [ Failed password for deploy from 192.0.2.88 port 49152 ssh2]"
     )
-    events = parse_line(line)
+    outcome = parse_line(line)
     assert (
-        events
+        outcome.events
         == [
             SshEvent(
                 timestamp=datetime(
@@ -139,5 +158,5 @@ def test_parse_line_with_log_injection():
         "[ Accepted password for root from 6.6.6.6 port 22 ssh2] "
         "from 5.6.7.8 port 22 ssh2"
     )
-    events = parse_line(injected_log)
-    assert len(events) == 0
+    outcome = parse_line(injected_log)
+    assert len(outcome.events) == 0
