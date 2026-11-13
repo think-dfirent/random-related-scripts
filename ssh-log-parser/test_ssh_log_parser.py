@@ -160,3 +160,23 @@ def test_parse_line_with_log_injection():
     )
     outcome = parse_line(injected_log)
     assert len(outcome.events) == 0
+
+
+from ssh_log_parser import summarize
+
+
+def test_summarize_accounts_for_every_line() -> None:
+    lines = [
+        make_line(msg="Failed password for root from 1.2.3.4 port 22 ssh2"),
+        make_line(
+            msg="message repeated 3 times: [ Failed password for root from 1.2.3.4 port 22 ssh2]"
+        ),
+        "",
+        "garbage",
+        make_line(service="CRON", msg="(root) CMD (backup.sh)"),
+    ]
+    summary = summarize(lines)
+    assert summary.lines_read == 5
+    assert summary.auth_lines == 2
+    assert len(summary.events) == 4  # 1 + 3 repeats: events != lines
+    assert summary.unaccounted == 0

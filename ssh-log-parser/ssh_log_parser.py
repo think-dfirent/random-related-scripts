@@ -1,7 +1,10 @@
 import ipaddress
 import json
 import re
+import sys
 from collections import Counter
+from collections.abc import Iterable
+from dataclasses import dataclass, field
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -150,47 +153,77 @@ def parse_line(line: str) -> ParseResult:
     return ParseResult(events=[event] * repeat_count, skip_reason=None)
 
 
-def main():
-    sample = Path(__file__).with_name("ssh_log_sample.txt").resolve()
-    output_path = Path(__file__).with_name("parsed_ssh_log.json").resolve()
-    parsed_logs: list[dict[str, Any]] = []
-    ignored_lines: dict[int, tuple[SkipReason, str]] = {}
-    malformed_lines: dict[int, str] = {}
-    with open(sample, "r", encoding="utf-8") as file:
-        for line_num, raw_line in enumerate(file, start=1):
-            line = raw_line.strip()
-            if not line:
-                malformed_lines[line_num] = "<empty line>"
-                continue
-            outcome = parse_line(line)
-            if outcome.events:
-                parsed_logs.extend(ev.to_dict() for ev in outcome.events)
-            elif outcome.skip_reason == "malformed":
-                malformed_lines[line_num] = line
-            elif outcome.skip_reason is not None:
-                ignored_lines[line_num] = (outcome.skip_reason, line)
+@dataclass
+class Summary:
+    """Line-level accounting for one input. Every line lands in exactly one bucket."""
 
-    with open(output_path, "w", encoding="utf-8") as parsed_file:
-        json.dump(parsed_logs, parsed_file, indent=4)
-    skipped_lines = len(ignored_lines) + len(malformed_lines)
-    total = len(parsed_logs) + skipped_lines
-    counts = Counter(log["result"] for log in parsed_logs)
-    success_count = counts["success"]
-    failure_count = counts["failure"]
-    print(f"Total: {total}")
+    lines_read: int = 0
+    blank_lines: int = 0
+    auth_lines: int = 0
+    events: list[SshEvent] = field(default_factory=list)
+    ignored: list[tuple[int, SkipReason, str]] = field(default_factory=list)
+    malformed: list[tuple[int, str]] = field(default_factory=list)
+
+    @property
+    def unaccounted(self) -> int:
+        accounted = (
+            self.blank_lines + self.auth_lines + len(self.ignored) + len(self.malformed)
+        )
+        return self.lines_read - accounted
+
+
+def summarize(lines: Iterable[str]) -> Summary:
+    """Parse every line and sort it into exactly one bucket."""
+    summary = Summary()
+    for line_num, raw_line in enumerate(lines, start=1):
+        summary.lines_read += 1
+        line = raw_line.strip()
+        if not line:
+            summary.blank_lines += 1
+            continue
+        outcome = parse_line(line)
+        if outcome.events:
+            summary.auth_lines += 1
+            summary.events.extend(outcome.events)
+        elif outcome.skip_reason == "malformed":
+            summary.malformed.append((line_num, line))
+        elif outcome.skip_reason is not None:
+            summary.ignored.append((line_num, outcome.skip_reason, line))
+        # else: impossible state -> not counted -> shows up in summary.unaccounted
+    return summary
+
+
+def print_summary(summary: Summary) -> None:
+    results = Counter(event.result for event in summary.events)
+    reasons = Counter(reason for _, reason, _ in summary.ignored)
+    reason_text = ", ".join(f"{r} {n}" for r, n in sorted(reasons.items()))
+
+    # Result -> stdout
+    print(f"Lines read: {summary.lines_read}")
     print(
-        f"Auth events: {len(parsed_logs)} (success {success_count}, failure {failure_count})"
+        f"Auth lines: {summary.auth_lines} -> events: {len(summary.events)} "
+        f"(success {results['success']}, failure {results['failure']})"
     )
-    print(f"Skipped lines: {skipped_lines}")
-    print(f"    Ignored lines: {len(ignored_lines)}")
-    print(f"    Malformed lines: {len(malformed_lines)}")
-    print("Ingored: ")
-    for line_num, (reason, content) in ignored_lines.items():
-        print(f"    [Ignored - {reason}] Line {line_num}: {content}")
-    print("Malformed: ")
-    for line_num, content in malformed_lines.items():
-        print(f"    [Malformed] Line {line_num}: {content}")
+    print(f"Ignored: {len(summary.ignored)} ({reason_text})")
+    print(f"Malformed: {len(summary.malformed)}")
+    print(f"Blank: {summary.blank_lines}")
+
+    # Diagnostics -> stderr, one self-contained line each
+    for line_num, reason, content in summary.ignored:
+        print(f"line {line_num}: ignored ({reason}): {content}", file=sys.stderr)
+    for line_num, content in summary.malformed:
+        print(f"line {line_num}: malformed: {content}", file=sys.stderr)
+    if summary.unaccounted:
+        print(f"BUG: {summary.unaccounted} line(s) not accounted for", file=sys.stderr)
+
+
+def main() -> int:
+    sample = Path(__file__).with_name("ssh_log_sample.txt")
+    with open(sample, encoding="utf-8") as file:
+        summary = summarize(file)
+    print_summary(summary)
+    return 1 if summary.unaccounted else 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
