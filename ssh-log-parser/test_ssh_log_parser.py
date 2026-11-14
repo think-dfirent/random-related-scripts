@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from ssh_log_parser import SshEvent, parse_line, ParseResult, summarize
+from ssh_log_parser import ParseResult, SshEvent, parse_line, summarize
 
 
 def make_line(
