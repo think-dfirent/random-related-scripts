@@ -75,6 +75,16 @@ class ParseResult:
     events: list[SshEvent]
     skip_reason: SkipReason | None = None
 
+    def __post_init__(self) -> None:
+        has_events = bool(self.events)
+        has_reason = self.skip_reason is not None
+        if has_events == has_reason:
+            raise ValueError(
+                f"Invalid ParseResult state: must provide either non-empty events "
+                f"or a skip_reason, got events={len(self.events)}, "
+                f"skip_reason={self.skip_reason!r}"
+            )
+
 
 def parse_envelope(line: str) -> dict[str, Any] | None:
     """Split syslog line into timestamp/host/service/pid/message."""
@@ -88,9 +98,10 @@ AUTH_MESSAGE = re.compile(
     r"""
     ^(?P<result>Accepted|Failed)\s
     (?P<method>\S+)\s
-    for\s(?P<invalid_user>invalid\suser\s)?(?P<user>\S*)\s
+    for\s(?P<invalid_user>invalid\suser\s)?(?P<user>[A-Za-z0-9_.-]+)\s
     from\s(?P<src_ip>\S+)\s
-    port\s(?P<src_port>\d+)
+    port\s(?P<src_port>\d+)\s
+    ssh2(?::\s.*)?$
 """,
     re.VERBOSE,
 )
@@ -122,7 +133,6 @@ def parse_auth_method(raw_method: str | None) -> AuthMethod:
 
 
 def parse_line(line: str) -> ParseResult:
-    event_list = []
     envelope = parse_envelope(line)
     if envelope is None:
         return ParseResult(events=[], skip_reason="malformed")
@@ -132,6 +142,8 @@ def parse_line(line: str) -> ParseResult:
     if not parsed:
         return ParseResult(events=[], skip_reason="unmatched_message")
     parsed_message, repeat_count = parsed
+    if repeat_count < 1:
+        return ParseResult(events=[], skip_reason="malformed")
     try:
         timestamp = datetime.fromisoformat(envelope["date_time"])
         ipaddress.ip_address(parsed_message["src_ip"])
@@ -171,9 +183,11 @@ class Summary:
         )
         return self.lines_read - accounted
 
+    def to_json(self, indent: int = 4) -> str:
+        return json.dumps([ev.to_dict() for ev in self.events], indent=indent)
+
 
 def summarize(lines: Iterable[str]) -> Summary:
-    """Parse every line and sort it into exactly one bucket."""
     summary = Summary()
     for line_num, raw_line in enumerate(lines, start=1):
         summary.lines_read += 1
@@ -189,7 +203,6 @@ def summarize(lines: Iterable[str]) -> Summary:
             summary.malformed.append((line_num, line))
         elif outcome.skip_reason is not None:
             summary.ignored.append((line_num, outcome.skip_reason, line))
-        # else: impossible state -> not counted -> shows up in summary.unaccounted
     return summary
 
 
@@ -221,6 +234,11 @@ def main() -> int:
     sample = Path(__file__).with_name("ssh_log_sample.txt")
     with open(sample, encoding="utf-8") as file:
         summary = summarize(file)
+    output_path = Path(__file__).with_name("parsed_ssh_logs.json")
+    with open(sample, encoding="utf-8") as file:
+        summary = summarize(file)
+        with open(output_path, "w", encoding="utf-8") as out:
+            out.write(summary.to_json())
     print_summary(summary)
     return 1 if summary.unaccounted else 0
 

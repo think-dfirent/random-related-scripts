@@ -1,9 +1,7 @@
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
+
 import pytest
-from ssh_log_parser import (
-    SshEvent,
-    parse_line,
-)
+from ssh_log_parser import SshEvent, parse_line, ParseResult, summarize
 
 
 def make_line(
@@ -95,7 +93,19 @@ def test_parse_line_with_valid_events(
             "malformed",
         ),  # invalid timestamp
         (
-            make_line(msg="Failed password for root from 999.1.1.1 port 22 ssh"),
+            make_line(msg="Failed password for root from 999.1.1.1 port 22 ssh2"),
+            "malformed",
+        ),
+        (
+            make_line(
+                msg="Failed password for invalid user root from 6.6.6.6 port 22 from 5.6.7.8 port 54321 ssh2"
+            ),
+            "unmatched_message",
+        ),
+        (
+            make_line(
+                msg="message repeated 0 times: [ Failed password for root from 1.2.3.4 port 22 ssh2]"
+            ),
             "malformed",
         ),
     ],
@@ -162,7 +172,15 @@ def test_parse_line_with_log_injection():
     assert len(outcome.events) == 0
 
 
-from ssh_log_parser import summarize
+def test_parse_result_rejects_impossible_states() -> None:
+    # Neither events nor skip_reason
+    with pytest.raises(ValueError, match="Invalid ParseResult state"):
+        ParseResult(events=[], skip_reason=None)
+
+    # Both events and skip_reason
+    dummy_event = parse_line(make_line()).events[0]
+    with pytest.raises(ValueError, match="Invalid ParseResult state"):
+        ParseResult(events=[dummy_event], skip_reason="malformed")
 
 
 def test_summarize_accounts_for_every_line() -> None:
