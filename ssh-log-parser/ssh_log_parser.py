@@ -231,8 +231,6 @@ def print_summary(summary: Summary) -> None:
 
 def main() -> int:
     sample = Path(__file__).with_name("ssh_log_sample.txt")
-    with open(sample, encoding="utf-8") as file:
-        summary = summarize(file)
     output_path = Path(__file__).with_name("parsed_ssh_logs.json")
     with open(sample, encoding="utf-8") as file:
         summary = summarize(file)
