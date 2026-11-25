@@ -97,12 +97,63 @@ def test_five_failures_then_success_alerts() -> None:
             1,
             id="tie-breaking: 4 failures and sucess and failure come in parallel",
         ),
+        pytest.param(
+            [
+                *failures(0, 10, 20, 30, 61),
+                make_event(62, "success"),
+            ],
+            0,
+            id="the fifth failure exceeds window -> no alert",
+        ),
+        pytest.param(
+            [
+                *failures(0, 10, 20, 30, 50),
+                make_event(111, "success"),
+            ],
+            0,
+            id="success after the window is purged -> no alert",
+        ),
+        pytest.param(
+            [
+                *failures(10, 20, 30, 40, 50, method="publickey"),
+                make_event(100, "success", method="password"),
+            ],
+            0,
+            id="5 publickey failure events, 1 success password event -> no alert",
+        ),
+        pytest.param(
+            [
+                *failures(40, 30, 55, 0, 10),
+                make_event(60, "success"),
+            ],
+            1,
+            id="unsorted timestamp, success in the window time still counts -> alert",
+        ),
+        pytest.param(
+            [
+                *failures(40, 30, 55, 0, 10, ip="203.0.113.8"),
+                *failures(40, 30, 55, 0, 10),
+                make_event(60, "success"),
+                make_event(60, "success", ip="203.0.113.8"),
+            ],
+            2,
+            id="interleaved IPs still count -> 2 alerts",
+        ),
+        pytest.param(
+            [
+                *failures(40, 30, 55, 0, 10, ip="203.0.113.8"),
+                *failures(40),
+                make_event(60, "success"),
+                make_event(60, "success", ip="203.0.113.8"),
+            ],
+            1,
+            id="interleaved IPs still count, one satisfies the condition -> 1 alert",
+        ),
     ],
 )
 def test_expected_alert_numbers(events, expected_counts) -> None:
     alerts = detect(events)
     assert len(alerts) == expected_counts
-    assert alerts[0].failure_count == 5
 
 
 @pytest.mark.parametrize(
@@ -118,7 +169,7 @@ def test_expected_alert_numbers(events, expected_counts) -> None:
                 make_event(50, "success", user="root"),
             ],
             "T1110.003",
-            id="5 different users failed and 1 user success",
+            id="5 different users failed and 1 user success -> T1110.003",
         ),
         pytest.param(
             [*failures(10, 20, 30, 40, 50), make_event(50, "success")],
