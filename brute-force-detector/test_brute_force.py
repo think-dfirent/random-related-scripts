@@ -83,7 +83,6 @@ def test_five_failures_then_success_alerts() -> None:
                 *failures(0, 10, 20, 30),
                 make_event(50, "success"),
                 make_event(55, "failure"),
-                make_event(55, "failure"),
                 make_event(70, "success"),
             ],
             1,
@@ -101,4 +100,33 @@ def test_five_failures_then_success_alerts() -> None:
     ],
 )
 def test_expected_alert_numbers(events, expected_counts) -> None:
-    assert len(detect(events)) == expected_counts
+    alerts = detect(events)
+    assert len(alerts) == expected_counts
+    assert alerts[0].failure_count == 5
+
+
+@pytest.mark.parametrize(
+    ("events", "expected_technique"),
+    [
+        pytest.param(
+            [
+                make_event(0, "failure", user="root"),
+                make_event(10, "failure", user="admin"),
+                make_event(20, "failure", user="sc"),
+                make_event(30, "failure", user="client"),
+                make_event(40, "failure", user="john_doe"),
+                make_event(50, "success", user="root"),
+            ],
+            "T1110.003",
+            id="5 different users failed and 1 user success",
+        ),
+        pytest.param(
+            [*failures(10, 20, 30, 40, 50), make_event(50, "success")],
+            "T1110.001",
+            id="5 failures and 1 success on one user -> T1110.001",
+        ),
+    ],
+)
+def test_alert_technique(events, expected_technique) -> None:
+    alerts = detect(events)
+    assert alerts[0].technique == expected_technique
