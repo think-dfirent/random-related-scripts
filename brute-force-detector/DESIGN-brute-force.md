@@ -75,11 +75,6 @@ than `window` relative to the newest failure is dropped).
 Derived: `technique` = T1110.001 if one user was tried, else T1110.003.
 No destination IP: sshd auth lines don't log the server address.
 
-**Open question (2026-11-25):** first_failure, failure_count, users_tried and
-hostnames describe only the failures still inside the window, not the whole
-attack. A 1-hour attack with 2,000 attempts reports at most the last ~60 s.
-Decide: keep as rule evidence, rename, or track the whole campaign.
-
 ## Module boundary
 
 - `brute-force-detector/` is a sibling of `ssh-log-parser/`.
@@ -125,4 +120,4 @@ T1133 External Remote Services.
 
 - Distributed brute force (many IPs -> one user): missed by the src_ip key.
 - Low-and-slow spraying (spread over minutes or hours): missed by the 60 s window.
-- Alert fields describe only the last window, not the whole attack.
+- Alert fields: first_failure, last_failure, failure_count are only in the failure window, not the whole attack. Analysts need to investigate in SIEM/EDR,...
