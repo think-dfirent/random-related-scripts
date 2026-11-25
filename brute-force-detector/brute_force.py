@@ -4,12 +4,12 @@ Design: DESIGN-brute-force.md. Input is SshEvent objects from ssh_log_parser,
 never log text, so the detector does not depend on the log format.
 """
 
+from collections import defaultdict, deque
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
 from ssh_log_parser import SshEvent
-from collections import deque, defaultdict
 
 # Methods that mean "the client guessed a secret". publickey etc. are excluded:
 # an ssh-agent offering several keys produces failures on a normal login.
@@ -32,8 +32,8 @@ class Alert:
     def technique(self) -> str:
         """T1110.001 (guessing) if one user was tried, else T1110.003 (spraying)."""
         if len(self.users_tried) == 1:
-            return "guessing"
-        return "spraying"
+            return "T1110.001"
+        return "T1110.003"
 
 
 def detect(
@@ -50,8 +50,7 @@ def detect(
     """
     recent_by_ip: defaultdict[str, deque[SshEvent]] = defaultdict(deque)
     alerts: list[Alert] = []
-    moments: list[SshEvent] = []
-    events = sorted(events, key=lambda e: e.timestamp)
+    events = sorted(events, key=lambda e: (e.timestamp, e.result == "success"))
     for event in events:
         if event.method not in GUESSABLE_METHODS:
             continue
