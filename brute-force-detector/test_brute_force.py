@@ -40,7 +40,7 @@ def failures(*seconds: float, **kwargs) -> list[SshEvent]:
 
 
 def successes(*seconds: float, **kwargs) -> list[SshEvent]:
-    """failures(0, 10, 20) -> three failure events with the same defaults."""
+    """successes(0, 10, 20) -> three failure events with the same defaults."""
     return [make_event(s, "success", **kwargs) for s in seconds]
 
 
@@ -68,7 +68,7 @@ def test_five_failures_then_success_alerts() -> None:
 
 
 @pytest.mark.parametrize(
-    ("events", "expected_counts"),
+    ("events", "expected_count"),
     [
         pytest.param(
             [
@@ -95,7 +95,7 @@ def test_five_failures_then_success_alerts() -> None:
                 make_event(40, "failure"),
             ],
             1,
-            id="tie-breaking: 4 failures and sucess and failure come in parallel",
+            id="tie-breaking: 4 failures and success and failure come in parallel",
         ),
         pytest.param(
             [
@@ -111,7 +111,7 @@ def test_five_failures_then_success_alerts() -> None:
                 make_event(111, "success"),
             ],
             0,
-            id="success after the window is purged -> no alert",
+            id="success exceeds success_window range -> no alert",
         ),
         pytest.param(
             [
@@ -122,10 +122,7 @@ def test_five_failures_then_success_alerts() -> None:
             id="5 publickey failure events, 1 success password event -> no alert",
         ),
         pytest.param(
-            [
-                *failures(40, 30, 55, 0, 10),
-                make_event(60, "success"),
-            ],
+            [make_event(60, "success"), *failures(40, 30, 55, 0, 10)],
             1,
             id="unsorted timestamp, success in the window time still counts -> alert",
         ),
@@ -149,11 +146,21 @@ def test_five_failures_then_success_alerts() -> None:
             1,
             id="interleaved IPs still count, one satisfies the condition -> 1 alert",
         ),
+        pytest.param(
+            [*failures(0, 10, 20, 30, 60), make_event(62, "success")],
+            1,
+            id="fifth failure at exactly 60 s -> still inside window (alert)",
+        ),
+        pytest.param(
+            [*failures(0, 10, 20, 30, 50), make_event(110, "success")],
+            1,
+            id="success at exactly 60 s after last failure -> still inside success_window (alert)",
+        ),
     ],
 )
-def test_expected_alert_numbers(events, expected_counts) -> None:
+def test_expected_alert_numbers(events: list[SshEvent], expected_count: int) -> None:
     alerts = detect(events)
-    assert len(alerts) == expected_counts
+    assert len(alerts) == expected_count
 
 
 @pytest.mark.parametrize(
@@ -178,6 +185,7 @@ def test_expected_alert_numbers(events, expected_counts) -> None:
         ),
     ],
 )
-def test_alert_technique(events, expected_technique) -> None:
+def test_alert_technique(events: list[SshEvent], expected_technique: str) -> None:
     alerts = detect(events)
+    assert len(alerts) == 1
     assert alerts[0].technique == expected_technique
