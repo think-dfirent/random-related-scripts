@@ -1,6 +1,6 @@
-import pytest
 from datetime import UTC, datetime, timedelta
 
+import pytest
 from brute_force import Alert, detect
 from ssh_log_parser import AuthMethod, AuthResult, SshEvent
 
@@ -67,18 +67,6 @@ def test_five_failures_then_success_alerts() -> None:
     ]
 
 
-# TODO (you): turn the remaining rows of the design note into tests.
-# Add `import pytest` at the top when you start. Suggested shape for rows that only check "how many alerts":
-#
-# @pytest.mark.parametrize(
-#     ("events", "expected_count"),
-#     [
-#         pytest.param([...], 0, id="61 s -> first failure slid out"),
-#         ...
-#     ],
-# )
-# def test_alert_count(events: list[SshEvent], expected_count: int) -> None:
-#     assert len(detect(events)) == expected_count
 @pytest.mark.parametrize(
     ("events", "expected_counts"),
     [
@@ -100,6 +88,15 @@ def test_five_failures_then_success_alerts() -> None:
             ],
             1,
             id="4 failures and 1 success, then another failure, then success -> 1 alert",
+        ),
+        pytest.param(
+            [
+                *failures(0, 10, 20, 30),
+                make_event(40, "success"),
+                make_event(40, "failure"),
+            ],
+            1,
+            id="tie-breaking: 4 failures and sucess and failure come in parallel",
         ),
     ],
 )
